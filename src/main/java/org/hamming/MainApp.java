@@ -21,7 +21,7 @@ import java.time.LocalDateTime;
 
 public class MainApp extends Application {
 
-    private byte[] originalFileBytes;
+    private byte[] activeFileBytes;
     private File activeFile; // Ultimo archivo cargado o generado (para operaciones de cambio)
 
     private TextFlow leftTextFlow = new TextFlow();
@@ -88,15 +88,22 @@ public class MainApp extends Application {
 
     private void loadFile(Stage stage) {
         FileChooser fc = new FileChooser();
-        fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("Archivos TXT", "*.txt"));
+        // cargamos archivo
+        fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("Archivos Soportados", "*.txt", "*.HA1", "*.HA2", "*.HA3", "*.HE1", "*.HE2", "*.HE3"));
         File f = fc.showOpenDialog(stage);
+
         if (f != null) {
             try {
-                originalFileBytes = Files.readAllBytes(f.toPath());
+                activeFileBytes = Files.readAllBytes(f.toPath());
                 activeFile = f;
-                updatePanel(leftTextFlow, new String(originalFileBytes), null);
+
+                // Mostrar los caracteres del archivo tal cual en el panel izquierdo
+                updatePanel(leftTextFlow, new String(activeFileBytes), null);
+
+                // Limpiar el panel derecho
                 rightTextFlow.getChildren().clear();
-                showStatus("Archivo " + f.getName() + " cargado exitosamente. (" + originalFileBytes.length + " bytes)");
+
+                showStatus("Archivo " + f.getName() + " cargado exitosamente. Listo para procesar.");
             } catch (Exception ex) {
                 showError("No se pudo cargar el archivo: " + ex.getMessage());
             }
@@ -124,81 +131,74 @@ public class MainApp extends Application {
     }
 
     private void protectFile(Stage stage, String choice) {
-        if (originalFileBytes == null) {
-            showError("Debe cargar un archivo TXT primero.");
+        if (activeFileBytes == null || !activeFile.getName().endsWith(".txt")) {
+            showError("Debe cargar un archivo original (.txt) en el panel izquierdo para protegerlo.");
             return;
         }
         try {
             int N = extractN(choice);
-            byte[] protectedBytes = HammingCodec.protect(originalFileBytes, N);
+            byte[] protectedBytes = HammingCodec.protect(activeFileBytes, N);
             String ext = getExt(N);
-            
+
             File outFile = new File(activeFile.getParent(), activeFile.getName().replace(".txt", "") + ext);
             Files.write(outFile.toPath(), protectedBytes);
-            activeFile = outFile;
-            
-            showStatus("Archivo protegido creado: " + outFile.getName() + " (" + protectedBytes.length + " bytes)");
+
+            // Mostrar el resultado (archivo hamminizado) en el panel derecho
+            updatePanel(rightTextFlow, new String(protectedBytes), null);
+            showStatus("Archivo protegido creado: " + outFile.getName());
         } catch (Exception ex) {
             showError("Error al proteger: " + ex.getMessage());
         }
     }
 
     private void introduceErrors(Stage stage) {
-        FileChooser fc = new FileChooser();
-        fc.setTitle("Seleccione Archivo .HAx protegido");
-        fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("Hamming Protegido", "*.HA1", "*.HA2", "*.HA3"));
-        File f = fc.showOpenDialog(stage);
-        if (f != null) {
-            try {
-                byte[] protectedBytes = Files.readAllBytes(f.toPath());
-                int N = 8;
-                if (f.getName().endsWith(".HA2")) N = 1024;
-                if (f.getName().endsWith(".HA3")) N = 16384;
+        if (activeFileBytes == null || !activeFile.getName().matches(".*\\.HA[123]$")) {
+            showError("Debe cargar un archivo protegido (.HA1, .HA2, .HA3) en el panel izquierdo.");
+            return;
+        }
+        try {
+            int N = 8;
+            if (activeFile.getName().endsWith(".HA2")) N = 1024;
+            if (activeFile.getName().endsWith(".HA3")) N = 16384;
 
-                byte[] errorBytes = HammingCodec.introduceErrors(protectedBytes, N);
-                String ext = getErrExt(N);
-                
-                File outFile = new File(f.getParent(), f.getName().replace(".HA1", "").replace(".HA2", "").replace(".HA3", "") + ext);
-                Files.write(outFile.toPath(), errorBytes);
-                activeFile = outFile;
-                
-                showStatus("Archivo con errores generado: " + outFile.getName());
-            } catch (Exception ex) {
-                showError("No se pudo corromper: " + ex.getMessage());
-            }
+            byte[] errorBytes = HammingCodec.introduceErrors(activeFileBytes, N);
+            String ext = getErrExt(N);
+
+            File outFile = new File(activeFile.getParent(), activeFile.getName().replace(".HA1", "").replace(".HA2", "").replace(".HA3", "") + ext);
+            Files.write(outFile.toPath(), errorBytes);
+
+            // Mostrar el resultado con errores en el panel derecho
+            updatePanel(rightTextFlow, new String(errorBytes), null);
+            showStatus("Archivo con errores generado: " + outFile.getName());
+        } catch (Exception ex) {
+            showError("No se pudo corromper: " + ex.getMessage());
         }
     }
 
     private void unprotect(Stage stage, boolean correctErrors) {
-        FileChooser fc = new FileChooser();
-        fc.setTitle("Seleccione Archivo .HAx o .HEx");
-        fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("Hamming Protegido", "*.HA1", "*.HA2", "*.HA3","*.HE1","*.HE2","*.HE3"));
-        File f = fc.showOpenDialog(stage);
-        if (f != null) {
-            try {
-                byte[] bytes = Files.readAllBytes(f.toPath());
-                int N = 8;
-                if (f.getName().contains("2")) N = 1024;
-                if (f.getName().contains("3")) N = 16384;
+        if (activeFileBytes == null || !activeFile.getName().matches(".*\\.(HA|HE)[123]$")) {
+            showError("Debe cargar un archivo protegido o con errores (.HAx, .HEx) en el panel izquierdo.");
+            return;
+        }
+        try {
+            int N = 8;
+            if (activeFile.getName().contains("2")) N = 1024;
+            if (activeFile.getName().contains("3")) N = 16384;
 
-                byte[] resultBytes = HammingCodec.unprotect(bytes, N, correctErrors);
-                
-                String extOriginal = correctErrors ? ".DC" : ".DE";
-                String numeral = f.getName().substring(f.getName().length()-1);
-                File outFile = new File(f.getParent(), f.getName().substring(0, f.getName().lastIndexOf(".")) + extOriginal + numeral);
-                Files.write(outFile.toPath(), resultBytes);
+            byte[] resultBytes = HammingCodec.unprotect(activeFileBytes, N, correctErrors);
 
-                String rawText = new String(resultBytes);
-                if (!correctErrors && originalFileBytes != null) {
-                    updatePanel(rightTextFlow, rawText, new String(originalFileBytes));
-                } else {
-                    updatePanel(rightTextFlow, rawText, null);
-                }
+            String extOriginal = correctErrors ? ".DC" : ".DE";
+            String numeral = activeFile.getName().substring(activeFile.getName().length()-1);
+            File outFile = new File(activeFile.getParent(), activeFile.getName().substring(0, activeFile.getName().lastIndexOf(".")) + extOriginal + numeral);
+            Files.write(outFile.toPath(), resultBytes);
 
-                showStatus("Archivo desprotegido generado: " + outFile.getName() + " | Recuperados " + resultBytes.length + " bytes.");
-            } catch (Exception ex) {
-                showError("Error al desproteger: " + ex.getMessage());
-            }
+            String rawText = new String(resultBytes);
+
+            // Mostrar el texto recuperado en el panel derecho
+            updatePanel(rightTextFlow, rawText, null);
+            showStatus("Archivo desprotegido generado: " + outFile.getName());
+        } catch (Exception ex) {
+            showError("Error al desproteger: " + ex.getMessage());
         }
     }
 
