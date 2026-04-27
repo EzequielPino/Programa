@@ -23,6 +23,7 @@ public class MainApp extends Application {
 
     private byte[] activeFileBytes;
     private File activeFile; // Ultimo archivo cargado o generado (para operaciones de cambio)
+    private byte[] originalFileBytes; // Copia en memoria del archivo original, para la comparación.
 
     private TextFlow leftTextFlow = new TextFlow();
     private TextFlow rightTextFlow = new TextFlow();
@@ -96,6 +97,10 @@ public class MainApp extends Application {
             try {
                 activeFileBytes = Files.readAllBytes(f.toPath());
                 activeFile = f;
+                //si es .txt guardamos en variable originalFileBytes para futura comparacion
+                if (f.getName().endsWith(".txt")) {
+                    originalFileBytes = activeFileBytes.clone();
+                }
 
                 // Mostrar los caracteres del archivo tal cual en el panel izquierdo
                 updatePanel(leftTextFlow, new String(activeFileBytes), null);
@@ -195,7 +200,12 @@ public class MainApp extends Application {
             String rawText = new String(resultBytes);
 
             // Mostrar el texto recuperado en el panel derecho
-            updatePanel(rightTextFlow, rawText, null);
+            if (!correctErrors && originalFileBytes != null) {
+                // Si NO corregimos errores, comparamos contra la copia original guardada
+                updatePanel(rightTextFlow, rawText, new String(originalFileBytes));
+            } else {
+                updatePanel(rightTextFlow, rawText, null);
+            }
             showStatus("Archivo desprotegido generado: " + outFile.getName());
         } catch (Exception ex) {
             showError("Error al desproteger: " + ex.getMessage());
