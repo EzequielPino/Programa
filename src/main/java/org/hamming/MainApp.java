@@ -21,7 +21,7 @@ import java.time.LocalDateTime;
 
 public class MainApp extends Application {
 
-    private byte[] activeFileBytes;
+    private byte[] activeFileBytes;// variable nueva
     private File activeFile; // Ultimo archivo cargado o generado (para operaciones de cambio)
     private byte[] originalFileBytes; // Copia en memoria del archivo original, para la comparación.
 
