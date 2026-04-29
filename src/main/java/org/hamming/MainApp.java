@@ -17,7 +17,10 @@ import javafx.stage.Stage;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 
 public class MainApp extends Application {
 
@@ -53,10 +56,15 @@ public class MainApp extends Application {
         Button btnDecodeCorrect = new Button(" Desproteger CORRIGIENDO ");
         btnDecodeCorrect.setOnAction(e -> unprotect(primaryStage, true));
 
-        Button btnEncrypt = new Button(" Encriptar XOR (Time-Lock) ");
-        btnEncrypt.setOnAction(e -> encryptFile(primaryStage));
+        /*Button btnEncrypt = new Button(" Encriptar XOR (Time-Lock) ");
+        btnEncrypt.setOnAction(e -> encryptFile(primaryStage));*/
+        Button btnEncrypt = new Button(" Encriptar XOR ");
+        btnEncrypt.setOnAction(e -> encryptLoadedFile(primaryStage));
 
-        HBox topBar = new HBox(10, btnLoad, new Label("Bloque:"), blockSizeBox, btnProtect, btnErrors, btnDecodeRaw, btnDecodeCorrect, btnEncrypt);
+        Button btnDecrypt = new Button(" Desencriptar XOR ");
+        btnDecrypt.setOnAction(e -> decryptLoadedFile());
+
+        HBox topBar = new HBox(10, btnLoad, new Label("Bloque:"), blockSizeBox, btnProtect, btnErrors, btnDecodeRaw, btnDecodeCorrect, btnEncrypt, btnDecrypt);
         topBar.setPadding(new Insets(10));
         topBar.setAlignment(Pos.CENTER_LEFT);
 
@@ -82,7 +90,7 @@ public class MainApp extends Application {
         statusLabel.setPadding(new Insets(5));
         statusLabel.setTextFill(Color.NAVY);
 
-        Scene scene = new Scene(root, 1000, 600);
+        Scene scene = new Scene(root, 1100, 600);
         primaryStage.setScene(scene);
         primaryStage.show();
     }
@@ -90,7 +98,7 @@ public class MainApp extends Application {
     private void loadFile(Stage stage) {
         FileChooser fc = new FileChooser();
         // cargamos archivo
-        fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("Archivos Soportados", "*.txt", "*.HA1", "*.HA2", "*.HA3", "*.HE1", "*.HE2", "*.HE3"));
+        fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("Archivos Soportados", "*.txt", "*.HA1", "*.HA2", "*.HA3", "*.HE1", "*.HE2", "*.HE3","*.enc"));
         File f = fc.showOpenDialog(stage);
 
         if (f != null) {
@@ -212,37 +220,77 @@ public class MainApp extends Application {
         }
     }
 
-    private void encryptFile(Stage stage) {
-        FileChooser fc = new FileChooser();
-        fc.setTitle("Seleccione Archivo para Encriptar");
-        File f = fc.showOpenDialog(stage);
-        if (f != null) {
-            TextInputDialog dialog = new TextInputDialog("1");
-            dialog.setTitle("Time-Lock XOR Encryption");
-            dialog.setHeaderText("Introduce los minutos a futuro para bloquear la apertura");
-            dialog.setContentText("Minutos:");
-            dialog.showAndWait().ifPresent(mins -> {
+    private void encryptLoadedFile(Stage stage) {
+        if (activeFileBytes == null || activeFile == null) {
+            showError("Debe cargar un archivo en el panel izquierdo antes de encriptar.");
+            return;
+        }
+        if (activeFile.getName().endsWith(".enc")) {
+            showError("El archivo ya está encriptado (.enc). Use el botón Desencriptar.");
+            return;
+        }
+
+        // Diálogo para la fecha
+        TextInputDialog dateDialog = new TextInputDialog(LocalDate.now().plusDays(1).toString());
+        dateDialog.setTitle("Time-Lock XOR Encryption");
+        dateDialog.setHeaderText("¿Hasta qué fecha estará bloqueado el archivo?");
+        dateDialog.setContentText("Fecha (AAAA-MM-DD):");
+
+        dateDialog.showAndWait().ifPresent(dateStr -> {
+            // Diálogo para la hora
+            TextInputDialog timeDialog = new TextInputDialog("12:00");
+            timeDialog.setTitle("Time-Lock XOR Encryption");
+            timeDialog.setHeaderText("¿Hasta qué hora estará bloqueado el archivo?");
+            timeDialog.setContentText("Hora (HH:MM):");
+
+            timeDialog.showAndWait().ifPresent(timeStr -> {
                 try {
-                    int minutes = Integer.parseInt(mins);
-                    LocalDateTime targetTime = LocalDateTime.now().plusMinutes(minutes);
-                    
-                    byte[] data = Files.readAllBytes(f.toPath());
-                    // SI ES ABRIR
-                    if (f.getName().endsWith(".enc")) {
-                          byte[] decrypted = CryptoTimeHelper.unpackTimeLock(data);
-                          File outFile = new File(f.getParent(), f.getName().replace(".enc", "_dec.txt"));
-                          Files.write(outFile.toPath(), decrypted);
-                          showStatus("Desencriptado exitosamente. Archivo: " + outFile.getName());
-                    } else {
-                          byte[] encrypted = CryptoTimeHelper.packWithTimeLock(data, targetTime);
-                          File outFile = new File(f.getParent(), f.getName() + ".enc");
-                          Files.write(outFile.toPath(), encrypted);
-                          showStatus("Encriptado con XOR! No se podrá abrir hasta: " + targetTime.toString());
+                    LocalDateTime targetTime = LocalDateTime.parse(
+                            dateStr + "T" + timeStr,
+                            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm")
+                    );
+
+                    if (!targetTime.isAfter(LocalDateTime.now())) {
+                        showError("La fecha y hora deben ser futuras.");
+                        return;
                     }
+
+                    byte[] encrypted = CryptoTimeHelper.packWithTimeLock(activeFileBytes, targetTime);
+                    File outFile = new File(activeFile.getParent(), activeFile.getName() + ".enc");
+                    Files.write(outFile.toPath(), encrypted);
+
+                    updatePanel(rightTextFlow, new String(encrypted), null);
+                    showStatus("Encriptado con XOR! No se podrá abrir hasta: " + targetTime.toString());
+
+                } catch (DateTimeParseException ex) {
+                    showError("Formato inválido. Use AAAA-MM-DD para fecha y HH:MM para hora.");
                 } catch (Exception ex) {
-                    showError("Error encriptación: " + ex.getMessage());
+                    showError("Error al encriptar: " + ex.getMessage());
                 }
             });
+        });
+    }
+
+    private void decryptLoadedFile() {
+        if (activeFileBytes == null || activeFile == null) {
+            showError("Debe cargar un archivo en el panel izquierdo antes de desencriptar.");
+            return;
+        }
+        if (!activeFile.getName().endsWith(".enc")) {
+            showError("El archivo cargado no es un archivo encriptado (.enc).");
+            return;
+        }
+
+        try {
+            byte[] decrypted = CryptoTimeHelper.unpackTimeLock(activeFileBytes);
+            File outFile = new File(activeFile.getParent(), activeFile.getName().replace(".enc", "_dec.txt"));
+            Files.write(outFile.toPath(), decrypted);
+
+            // Mostrar resultado en panel derecho
+            updatePanel(rightTextFlow, new String(decrypted), null);
+            showStatus("Desencriptado exitosamente. Archivo: " + outFile.getName());
+        } catch (Exception ex) {
+            showError("Error al desencriptar: " + ex.getMessage());
         }
     }
 
