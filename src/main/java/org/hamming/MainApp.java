@@ -56,8 +56,6 @@ public class MainApp extends Application {
         Button btnDecodeCorrect = new Button(" Desproteger CORRIGIENDO ");
         btnDecodeCorrect.setOnAction(e -> unprotect(primaryStage, true));
 
-        /*Button btnEncrypt = new Button(" Encriptar XOR (Time-Lock) ");
-        btnEncrypt.setOnAction(e -> encryptFile(primaryStage));*/
         Button btnEncrypt = new Button(" Encriptar XOR ");
         btnEncrypt.setOnAction(e -> encryptLoadedFile(primaryStage));
 
